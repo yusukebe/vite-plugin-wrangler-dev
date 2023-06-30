@@ -1,6 +1,6 @@
 import express from 'express'
 import { createServer as createViteServer } from 'vite'
-import { Hono } from 'hono'
+import type { Hono } from 'hono'
 import { getRequestListener } from '@hono/node-server'
 
 async function createServer() {
