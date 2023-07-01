@@ -1,3 +1,3 @@
-import { createServer } from '../src/server'
+import { createServer } from '../src'
 
 createServer()
