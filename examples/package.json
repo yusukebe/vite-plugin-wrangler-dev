@@ -1,0 +1,12 @@
+{
+  "name": "examples",
+  "version": "0.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "devDependencies": {
+    "tsx": "^3.12.7"
+  },
+  "dependencies": {
+    "hono": "^3.2.7"
+  }
+}

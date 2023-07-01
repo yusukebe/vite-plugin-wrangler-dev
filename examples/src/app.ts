@@ -13,7 +13,6 @@ app.get('/', (c) => {
       <body>
         <h1>Hello Wrangler!</h1>
         <p>TOKEN is ${c.env.TOKEN}</p>
-        <script type="module" src="/@vite/client"></script>
       </body>
     </html>`
   )
