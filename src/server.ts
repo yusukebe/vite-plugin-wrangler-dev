@@ -1,92 +1,140 @@
-import express from 'express'
-import { createServer as createViteServer, build as viteBuild } from 'vite'
-import { getRequestListener } from '@hono/node-server'
+import type http from 'http'
 import path from 'path'
+import { getRequestListener } from '@hono/node-server'
+import type { Plugin, ViteDevServer, Connect, ModuleNode, InlineConfig } from 'vite'
+import { build as viteBuild } from 'vite'
 import { unstable_dev } from 'wrangler'
 import type { UnstableDevWorker, UnstableDevOptions } from 'wrangler'
 
-const DEFAULT_PORT = 5173
+let worker: UnstableDevWorker | undefined
+const wranglerDevOptions: UnstableDevOptions = {
+  experimental: { disableExperimentalWarning: true, liveReload: false },
+  logLevel: 'debug'
+}
 
-export type CreateServerOptions = {
-  entry?: string
-  outFile?: string
-  watchDir?: string
+type SonikViteServerOptions = {
   port?: number
-  wranglerOptions?: UnstableDevOptions
+  entry?: string
+  wranglerDevOptions?: UnstableDevOptions
+  insertClientScript?: boolean
 }
 
-export const createServer = async (options?: CreateServerOptions) => {
-  const entry = options?.entry ?? './src/app.ts'
-  const outFile = options?.outFile ?? './dist/app.mjs'
-  const watchDir = options?.watchDir ?? './src'
-  const port = options?.port ?? DEFAULT_PORT
-  const wranglerOptions = options?.wranglerOptions ?? {
-    experimental: { disableExperimentalWarning: true },
-    logLevel: 'info'
-  }
+export function wranglerDev(options?: SonikViteServerOptions): Plugin[] {
+  const entry = options?.entry ?? './src/index.ts'
+  const workerPath = './dist/index.js'
 
-  let worker: UnstableDevWorker
-
-  const rebuildAndRestart = async () => {
-    await buildScript(entry)
-    worker = await unstable_dev(outFile, wranglerOptions)
-  }
-
-  const watchAndBuildPlugin = {
-    name: 'watch-and-build',
-    async handleHotUpdate({ file }: { file: string }) {
-      if (file.startsWith(path.resolve(process.cwd(), watchDir))) {
-        await rebuildAndRestart()
-      }
-    }
-  }
-
-  const vite = await createViteServer({
-    server: { middlewareMode: true },
-    appType: 'custom',
-    plugins: [watchAndBuildPlugin]
-  })
-
-  // Initial build
-  await rebuildAndRestart()
-
-  // Express as a dev server
-  // I don't want to use it...
-  const server = express()
-  server.use(vite.middlewares)
-
-  server.use('*', async (req, res) => {
-    await vite.ssrLoadModule(entry)
-    req.url = req.originalUrl
-    getRequestListener(async (workerRequest) => {
-      const newResponse = await worker.fetch(workerRequest.url, workerRequest as any)
-      if (newResponse.headers.get('content-type')?.match(/^text\/html/)) {
-        const body = (await newResponse.text()) + '<script type="module" src="/@vite/client"></script>'
-        const headers = new Headers(newResponse.headers)
-        headers.delete('content-length')
-        return new Response(body, {
-          status: newResponse.status,
-          headers
-        })
-      }
-      return newResponse
-    })(req, res)
-  })
-
-  server.listen(port, () => {
-    console.log(`[Vite] Running on http://localhost:${port}`)
-  })
-}
-
-async function buildScript(filename: string) {
-  await viteBuild({
+  const ssrConfig: InlineConfig = {
     ssr: {
       noExternal: true,
       format: 'esm'
     },
     build: {
-      ssr: path.resolve(process.cwd(), filename),
-      rollupOptions: {}
+      rollupOptions: {
+        external: ['__STATIC_CONTENT_MANIFEST']
+      },
+      ssr: entry
     }
-  })
+  }
+
+  const buildServer = async () => {
+    await viteBuild(ssrConfig)
+  }
+
+  const plugins: Plugin[] = [
+    {
+      name: 'vite-plugin-wrangler',
+      // Ignore '__STATIC_CONTENT_MANIFEST'
+      resolveId(id) {
+        if (id === '__STATIC_CONTENT_MANIFEST') {
+          return id
+        }
+      },
+      load(id) {
+        if (id === '__STATIC_CONTENT_MANIFEST') {
+          return ''
+        }
+      },
+      handleHotUpdate: async ({
+        file,
+        modules,
+        server
+      }: {
+        file: string
+        modules: Array<ModuleNode>
+        server: ViteDevServer
+      }) => {
+        if (file.startsWith(path.resolve(process.cwd(), 'src'))) {
+          Promise.all([await buildServer()])
+          if (worker) worker.stop()
+          worker = await unstable_dev(workerPath, wranglerDevOptions)
+          if (modules.length === 0) {
+            server.ws.send({
+              type: 'full-reload'
+            })
+          }
+        }
+      },
+      configureServer: async (server) => {
+        Promise.all([await buildServer()])
+        async function createMiddleware(server: ViteDevServer): Promise<Connect.HandleFunction> {
+          return async function (
+            req: http.IncomingMessage,
+            res: http.ServerResponse,
+            next: Connect.NextFunction
+          ): Promise<void> {
+            if (
+              req.url?.endsWith('.ts') ||
+              req.url?.startsWith('/@vite/client') ||
+              req.url?.startsWith('/@fs/') ||
+              req.url?.startsWith('/node_modules')
+            ) {
+              return next()
+            }
+
+            const appModule = await server.ssrLoadModule(entry)
+            const app = appModule['default']
+
+            if (!app) {
+              console.error(`Failed to find a named export "default" from ${entry}`)
+            } else {
+              getRequestListener(async (workerRequest) => {
+                try {
+                  if (!worker) {
+                    worker = await unstable_dev(workerPath, wranglerDevOptions)
+                  }
+                  const newResponse = await worker.fetch(workerRequest.url, {
+                    method: workerRequest.method,
+                    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                    // @ts-ignore
+                    headers: workerRequest.headers,
+                    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                    // @ts-ignore
+                    body: workerRequest.body,
+                    duplex: 'half',
+                    redirect: 'manual'
+                  })
+
+                  if (newResponse.headers.get('content-type')?.match(/^text\/html/)) {
+                    const body = (await newResponse.text()) + '<script type="module" src="/@vite/client"></script>'
+                    const headers = new Headers(newResponse.headers)
+                    headers.delete('content-length')
+                    return new Response(body, {
+                      status: newResponse.status,
+                      headers
+                    })
+                  }
+                  return newResponse
+                } catch (e) {
+                  console.log(e)
+                }
+              })(req, res)
+            }
+          }
+        }
+
+        server.middlewares.use(await createMiddleware(server))
+      }
+    }
+  ]
+  return plugins
 }

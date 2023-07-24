@@ -11,7 +11,7 @@ app.get('/', (c) => {
   return c.html(
     html`<html>
       <body>
-        <h1>Hello Wrangler!</h1>
+        <h1>Hello Wrangler!!</h1>
         <p>TOKEN is ${c.env.TOKEN}</p>
       </body>
     </html>`

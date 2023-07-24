@@ -1,2 +1,1 @@
-export { createServer } from './server'
-export type { CreateServerOptions } from './server'
+export { wranglerDev } from './server'

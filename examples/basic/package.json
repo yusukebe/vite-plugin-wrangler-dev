@@ -1,12 +1,15 @@
 {
   "name": "examples",
   "version": "0.0.0",
-  "main": "index.js",
-  "license": "MIT",
-  "devDependencies": {
-    "tsx": "^3.12.7"
+  "type": "module",
+  "scripts": {
+    "dev": "vite"
   },
+  "private": true,
   "dependencies": {
     "hono": "^3.2.7"
+  },
+  "devDependencies": {
+    "vite": "^4.4.6"
   }
 }
