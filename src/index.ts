@@ -10,7 +10,9 @@ let worker: UnstableDevWorker | undefined
 
 type WranglerDevOptions = {
   entry?: string
+  workerPath?: string
   client?: string
+  srcDirectoryName?: string
   assetDirectory?: string
   passThrough?: string[]
   wranglerDevOptions?: UnstableDevOptions
@@ -19,13 +21,14 @@ type WranglerDevOptions = {
 function wranglerDev(options?: WranglerDevOptions): Plugin[] {
   const entry = options?.entry ?? './src/index.ts'
   const entryFileName = path.basename(entry)
-  const workerPath = `./dist/${entryFileName.replace(/\.ts$/, '.js')}`
-
+  const workerPath = options?.workerPath ?? `./dist/${entryFileName.replace(/\.ts$/, '.js')}`
+  const srcDirectoryName = options?.srcDirectoryName ?? 'src'
   const clientPath = options?.client
 
   const wranglerDevOptions: UnstableDevOptions = {
     experimental: {
       disableExperimentalWarning: true,
+      watch: false,
       liveReload: false,
       enablePagesAssetsServiceBinding: {
         directory: options?.assetDirectory ?? './public'
@@ -63,9 +66,11 @@ function wranglerDev(options?: WranglerDevOptions): Plugin[] {
         server: ViteDevServer
       }) => {
         // TODO: Should validate
-        if (file.endsWith(entryFileName)) {
+        if (file.includes(srcDirectoryName)) {
           await buildServer()
-          if (worker) worker.stop()
+          if (worker) {
+            await worker.stop()
+          }
           worker = await unstable_dev(workerPath, wranglerDevOptions)
           if (modules.length === 0) {
             server.ws.send({
@@ -94,8 +99,10 @@ function wranglerDev(options?: WranglerDevOptions): Plugin[] {
               }
             }
 
-            const appModule = await server.ssrLoadModule(entry)
-            const app = appModule['default']
+            // TODO: Check an app is exporting `default`
+            // const appModule = await server.ssrLoadModule(entry)
+            // const app = appModule['default']
+            const app = true
 
             if (!app) {
               console.error(`Failed to find a named export "default" from ${entry}`)
@@ -127,6 +134,7 @@ function wranglerDev(options?: WranglerDevOptions): Plugin[] {
                   if (newResponse.headers.get('content-type')?.match(/^text\/html/)) {
                     let body = (await newResponse.text()) + `<script type="module" src="/@vite/client"></script>`
                     if (clientPath) body = `${body}<script type="module" src="${clientPath}"></script>`
+                    // @ts-ignore
                     const headers = new Headers(newResponse.headers)
                     headers.delete('content-length')
                     return new Response(body, {

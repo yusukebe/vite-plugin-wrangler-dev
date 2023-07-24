@@ -1,5 +1,5 @@
-import { defineConfig } from '../node_modules/vite'
-import vitePluginWranglerDev from '../src'
+import { defineConfig } from '../../node_modules/vite'
+import vitePluginWranglerDev from '../../src'
 
 export default defineConfig({
   plugins: [
