@@ -3,13 +3,17 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite"
+    "dev": "vite",
+    "pages:dev": "wrangler pages dev --live-reload dist",
+    "build": "vite build && vite build -c vite.client.config.ts",
+    "deploy": "$npm_execpath build && wrangler pages deploy dist"
   },
   "private": true,
   "dependencies": {
     "hono": "^3.2.7"
   },
   "devDependencies": {
-    "vite": "^4.4.6"
+    "vite": "^4.4.6",
+    "wrangler": "^3.3.0"
   }
 }

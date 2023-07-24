@@ -7,21 +7,31 @@ import { unstable_dev } from 'wrangler'
 import type { UnstableDevWorker, UnstableDevOptions } from 'wrangler'
 
 let worker: UnstableDevWorker | undefined
-const wranglerDevOptions: UnstableDevOptions = {
-  experimental: { disableExperimentalWarning: true, liveReload: false },
-  logLevel: 'debug'
-}
 
-type SonikViteServerOptions = {
-  port?: number
+type WranglerDevOptions = {
   entry?: string
+  client?: string
+  assetDirectory?: string
+  passThrough?: string[]
   wranglerDevOptions?: UnstableDevOptions
-  insertClientScript?: boolean
 }
 
-export function wranglerDev(options?: SonikViteServerOptions): Plugin[] {
+export function wranglerDev(options?: WranglerDevOptions): Plugin[] {
   const entry = options?.entry ?? './src/index.ts'
-  const workerPath = './dist/index.js'
+  const entryFileName = path.basename(entry)
+  const workerPath = `./dist/${entryFileName.replace(/\.ts$/, '.js')}`
+
+  const clientPath = options?.client
+
+  const wranglerDevOptions: UnstableDevOptions = {
+    experimental: {
+      disableExperimentalWarning: true,
+      liveReload: false,
+      enablePagesAssetsServiceBinding: {
+        directory: options?.assetDirectory ?? './public'
+      }
+    }
+  }
 
   const ssrConfig: InlineConfig = {
     ssr: {
@@ -29,9 +39,6 @@ export function wranglerDev(options?: SonikViteServerOptions): Plugin[] {
       format: 'esm'
     },
     build: {
-      rollupOptions: {
-        external: ['__STATIC_CONTENT_MANIFEST']
-      },
       ssr: entry
     }
   }
@@ -42,17 +49,9 @@ export function wranglerDev(options?: SonikViteServerOptions): Plugin[] {
 
   const plugins: Plugin[] = [
     {
-      name: 'vite-plugin-wrangler',
-      // Ignore '__STATIC_CONTENT_MANIFEST'
-      resolveId(id) {
-        if (id === '__STATIC_CONTENT_MANIFEST') {
-          return id
-        }
-      },
-      load(id) {
-        if (id === '__STATIC_CONTENT_MANIFEST') {
-          return ''
-        }
+      name: 'wrangler-dev',
+      config: () => {
+        return ssrConfig
       },
       handleHotUpdate: async ({
         file,
@@ -63,8 +62,9 @@ export function wranglerDev(options?: SonikViteServerOptions): Plugin[] {
         modules: Array<ModuleNode>
         server: ViteDevServer
       }) => {
-        if (file.startsWith(path.resolve(process.cwd(), 'src'))) {
-          Promise.all([await buildServer()])
+        // TODO: Should validate
+        if (file.endsWith(entryFileName)) {
+          await buildServer()
           if (worker) worker.stop()
           worker = await unstable_dev(workerPath, wranglerDevOptions)
           if (modules.length === 0) {
@@ -75,20 +75,22 @@ export function wranglerDev(options?: SonikViteServerOptions): Plugin[] {
         }
       },
       configureServer: async (server) => {
-        Promise.all([await buildServer()])
+        await buildServer()
         async function createMiddleware(server: ViteDevServer): Promise<Connect.HandleFunction> {
           return async function (
             req: http.IncomingMessage,
             res: http.ServerResponse,
             next: Connect.NextFunction
           ): Promise<void> {
-            if (
-              req.url?.endsWith('.ts') ||
-              req.url?.startsWith('/@vite/client') ||
-              req.url?.startsWith('/@fs/') ||
-              req.url?.startsWith('/node_modules')
-            ) {
-              return next()
+            if (req.url) {
+              if (
+                req.url == clientPath ||
+                req.url.startsWith('/@vite/client') ||
+                req.url.startsWith('/@fs/') ||
+                req.url.startsWith('/node_modules')
+              ) {
+                return next()
+              }
             }
 
             const appModule = await server.ssrLoadModule(entry)
@@ -102,6 +104,13 @@ export function wranglerDev(options?: SonikViteServerOptions): Plugin[] {
                   if (!worker) {
                     worker = await unstable_dev(workerPath, wranglerDevOptions)
                   }
+
+                  if (options?.passThrough && req.url) {
+                    if (options.passThrough.includes(req.url)) {
+                      return new Response(null)
+                    }
+                  }
+
                   const newResponse = await worker.fetch(workerRequest.url, {
                     method: workerRequest.method,
                     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -115,7 +124,8 @@ export function wranglerDev(options?: SonikViteServerOptions): Plugin[] {
                   })
 
                   if (newResponse.headers.get('content-type')?.match(/^text\/html/)) {
-                    const body = (await newResponse.text()) + '<script type="module" src="/@vite/client"></script>'
+                    let body = (await newResponse.text()) + `<script type="module" src="/@vite/client"></script>`
+                    if (clientPath) body = `${body}<script type="module" src="${clientPath}"></script>`
                     const headers = new Headers(newResponse.headers)
                     headers.delete('content-length')
                     return new Response(body, {

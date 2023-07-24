@@ -1,4 +1,4 @@
-# Wrangler Vite DevServer Plugin
+# Vite Wrangler Dev Plugin
 
 WIP
 
