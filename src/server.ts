@@ -84,6 +84,7 @@ export function wranglerDev(options?: WranglerDevOptions): Plugin[] {
           ): Promise<void> {
             if (req.url) {
               if (
+                // TODO: Support multiple client files
                 req.url == clientPath ||
                 req.url.startsWith('/@vite/client') ||
                 req.url.startsWith('/@fs/') ||
