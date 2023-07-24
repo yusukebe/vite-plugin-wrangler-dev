@@ -69,9 +69,12 @@ function wranglerDev(options?: WranglerDevOptions): Plugin[] {
         if (file.includes(srcDirectoryName)) {
           await buildServer()
           if (worker) {
+            console.log('start stop', worker.port)
             await worker.stop()
+            worker = undefined
           }
           worker = await unstable_dev(workerPath, wranglerDevOptions)
+          console.log('start worker', worker.port)
           if (modules.length === 0) {
             server.ws.send({
               type: 'full-reload'
@@ -109,15 +112,17 @@ function wranglerDev(options?: WranglerDevOptions): Plugin[] {
             } else {
               getRequestListener(async (workerRequest) => {
                 try {
-                  if (!worker) {
-                    worker = await unstable_dev(workerPath, wranglerDevOptions)
-                  }
-
                   if (options?.passThrough && req.url) {
                     if (options.passThrough.includes(req.url)) {
                       return new Response(null)
                     }
                   }
+
+                  if (!worker) {
+                    worker = await unstable_dev(workerPath, wranglerDevOptions)
+                  }
+
+                  console.log('worker fetch', worker.port)
 
                   const newResponse = await worker.fetch(workerRequest.url, {
                     method: workerRequest.method,
