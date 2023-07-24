@@ -1,4 +1,4 @@
-import { defineConfig } from '../../node_modules/vite'
+import { defineConfig } from '../node_modules/vite'
 
 export default defineConfig({
   build: {
