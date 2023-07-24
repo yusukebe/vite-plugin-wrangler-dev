@@ -1,9 +1,9 @@
 import { defineConfig } from '../../node_modules/vite'
-import { wranglerDev } from '../../src'
+import vitePluginWranglerDev from '../../src'
 
 export default defineConfig({
   plugins: [
-    wranglerDev({
+    vitePluginWranglerDev({
       entry: '/src/_worker.ts',
       client: '/src/client.ts',
       passThrough: ['/js/client.js']

@@ -1,5 +1,5 @@
 {
-  "name": "wrangler-vite-server",
+  "name": "vite-plugin-wrangler-dev",
   "version": "0.0.0",
   "main": "index.js",
   "license": "MIT",

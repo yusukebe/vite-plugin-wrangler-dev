@@ -1,4 +1,4 @@
-# Vite Wrangler Dev Plugin
+# vite-plugin-wrangler-dev
 
 WIP
 
